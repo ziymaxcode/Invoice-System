@@ -2,7 +2,7 @@
 
 A simple, modern, and local-first desktop application for managing products, customers, and invoices. Built with Python and CustomTkinter, this system is designed to be easy to use for small business owners without requiring any technical expertise or internet connection.
 
-![Main Menu Screenshot](https://i.imgur.com/your-screenshot-url.png) <!-- It's a good idea to add a screenshot of your app here -->
+
 
 ## ✨ Features
 
