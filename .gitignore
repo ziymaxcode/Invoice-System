@@ -1,0 +1,11 @@
+# Build artifacts
+dist/
+build/
+*.spec
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Database file (so each user has their own)
+*.db
