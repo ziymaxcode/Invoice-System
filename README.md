@@ -22,9 +22,7 @@ A simple, modern, and local-first desktop application for managing products, cus
   - Search for invoices by customer name.
   - Generate and save any invoice as a PDF file, ready for printing or emailing.
   - "Print" option that opens the generated PDF in the system's default viewer.
-- **Customization:**
-  - Supports custom application icons (`.ico`).
-  - Uses a custom font to correctly display currency symbols like the Indian Rupee (₹).
+
 
 ## 🛠️ Technologies Used
 
