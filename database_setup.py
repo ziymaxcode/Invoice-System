@@ -5,10 +5,8 @@ import os
 def get_db_path():
     """Gets the correct path to the database file."""
     if getattr(sys, 'frozen', False):
-        # Running as a bundled .exe
         base_path = os.path.dirname(sys.executable)
     else:
-        # Running as a .py script
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, 'hardware_store.db')
 
@@ -28,10 +26,14 @@ def setup_database():
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
         phone TEXT, address TEXT )
     ''')
+    # --- UPDATED: Added subtotal and discount columns ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS invoices (
         id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER,
-        invoice_date TEXT NOT NULL, total_amount REAL NOT NULL,
+        invoice_date TEXT NOT NULL, 
+        subtotal_amount REAL NOT NULL,
+        discount_percent REAL DEFAULT 0,
+        total_amount REAL NOT NULL,
         FOREIGN KEY (customer_id) REFERENCES customers (id) )
     ''')
     cursor.execute('''
