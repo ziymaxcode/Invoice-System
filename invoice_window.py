@@ -16,6 +16,7 @@ class InvoiceFrame(ctk.CTkFrame):
         self._customer_search_job = None
         self._product_search_job = None
         self.last_saved_invoice_id = None
+        self.invoice_items = []
 
         # --- Top Bar ---
         top_bar = ctk.CTkFrame(self)
@@ -70,43 +71,36 @@ class InvoiceFrame(ctk.CTkFrame):
         self.quantity_entry.pack(side="left", padx=5)
         add_button = ctk.CTkButton(self.add_item_frame, text="Add to Invoice", command=self.add_item_to_invoice)
         add_button.pack(side="left", padx=10)
+
         self.status_label = ctk.CTkLabel(self.add_item_frame, text="")
         self.status_label.pack(side="left", padx=10)
 
-        # --- Invoice Items Display ---
-        self.items_display_frame = ctk.CTkFrame(self)
+        # --- UPDATED: Invoice Items Display is now a Scrollable Frame ---
+        self.items_display_frame = ctk.CTkScrollableFrame(self)
         self.items_display_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        self.items_list = ctk.CTkTextbox(self.items_display_frame, font=("Courier", 12))
-        self.items_list.pack(fill="both", expand=True)
-        self.items_list.configure(state="disabled")
 
-        # --- UPDATED: Bottom Bar with Taxes ---
+        # --- Bottom Bar with Taxes ---
         self.bottom_frame = ctk.CTkFrame(self)
         self.bottom_frame.pack(fill="x", padx=10, pady=10)
         
-        # Frame for discount and tax entry
         self.calculation_frame = ctk.CTkFrame(self.bottom_frame)
         self.calculation_frame.pack(side="left", padx=10)
         
-        # Discount Row
         ctk.CTkLabel(self.calculation_frame, text="Discount (%):").grid(row=0, column=0, padx=5, pady=2, sticky="w")
         self.discount_entry = ctk.CTkEntry(self.calculation_frame, width=60)
         self.discount_entry.grid(row=0, column=1, padx=5, pady=2)
         self.discount_entry.bind("<KeyRelease>", lambda event: self.update_invoice_display())
 
-        # CGST Row
         ctk.CTkLabel(self.calculation_frame, text="CGST (%):").grid(row=1, column=0, padx=5, pady=2, sticky="w")
         self.cgst_entry = ctk.CTkEntry(self.calculation_frame, width=60)
         self.cgst_entry.grid(row=1, column=1, padx=5, pady=2)
         self.cgst_entry.bind("<KeyRelease>", lambda event: self.update_invoice_display())
 
-        # SGST Row
         ctk.CTkLabel(self.calculation_frame, text="SGST (%):").grid(row=2, column=0, padx=5, pady=2, sticky="w")
         self.sgst_entry = ctk.CTkEntry(self.calculation_frame, width=60)
         self.sgst_entry.grid(row=2, column=1, padx=5, pady=2)
         self.sgst_entry.bind("<KeyRelease>", lambda event: self.update_invoice_display())
 
-        # Frame for totals display
         self.totals_frame = ctk.CTkFrame(self.bottom_frame, fg_color="transparent")
         self.totals_frame.pack(side="left", padx=20)
         self.subtotal_label = ctk.CTkLabel(self.totals_frame, text="Subtotal: ₹0.00")
@@ -120,21 +114,143 @@ class InvoiceFrame(ctk.CTkFrame):
         self.total_label = ctk.CTkLabel(self.totals_frame, text="Grand Total: ₹0.00", font=ctk.CTkFont(size=16, weight="bold"))
         self.total_label.pack(anchor="w", pady=(5,0))
         
-        # Buttons on the right
         self.print_button = ctk.CTkButton(self.bottom_frame, text="Open PDF", command=self.print_invoice, state="disabled")
         self.print_button.pack(side="right", padx=5)
         self.save_button = ctk.CTkButton(self.bottom_frame, text="Save Invoice", command=self.save_invoice)
         self.save_button.pack(side="right", padx=5)
 
+    def delete_invoice_item(self, item_to_delete):
+        self.invoice_items.remove(item_to_delete)
+        self.update_invoice_display()
+
+    # --- NEW: Function to update quantity ---
+    def update_item_quantity(self, item, new_quantity_str):
+        try:
+            new_quantity = int(new_quantity_str)
+            if new_quantity <= 0:
+                self.delete_invoice_item(item) # Delete if quantity is 0 or less
+                return
+        except ValueError:
+            messagebox.showwarning("Input Error", "Quantity must be a valid number.", parent=self)
+            self.update_invoice_display() # Revert to old value
+            return
+
+        product_info = self.product_data[item['name']]
+        available_stock = product_info['stock']
+        
+        # Check stock, excluding the item we are currently editing
+        quantity_of_other_items_in_cart = sum(i['quantity'] for i in self.invoice_items if i['product_id'] == item['product_id'] and i is not item)
+        
+        if (new_quantity + quantity_of_other_items_in_cart) > available_stock:
+            messagebox.showwarning("Stock Error", f"Cannot set quantity to {new_quantity}.\nOnly {available_stock - quantity_of_other_items_in_cart} available in stock.", parent=self)
+            self.update_invoice_display() # Revert to old value
+            return
+        
+        # Update the item in the list
+        item['quantity'] = new_quantity
+        item['line_total'] = new_quantity * item['price_per_unit']
+        self.update_invoice_display()
+
+
+    def add_item_to_invoice(self):
+        selected_product = self.product_menu.get()
+        quantity_str = self.quantity_entry.get()
+        if "No products found" in selected_product or selected_product not in self.product_data:
+            self.status_label.configure(text="Please select a valid product.", text_color="red")
+            return
+        try:
+            quantity = int(quantity_str)
+            if quantity <= 0: raise ValueError("Quantity must be positive")
+        except ValueError:
+            self.status_label.configure(text="Invalid quantity.", text_color="red")
+            return
+        product_info = self.product_data[selected_product]
+        available_stock = product_info['stock']
+        quantity_in_cart = sum(item['quantity'] for item in self.invoice_items if item['product_id'] == product_info['id'])
+        if (quantity + quantity_in_cart) > available_stock:
+            messagebox.showwarning("Stock Error", f"Cannot add {quantity} of {selected_product}.\nOnly {available_stock - quantity_in_cart} left in stock.", parent=self)
+            return
+        
+        # Check if item already exists, if so, update quantity
+        for item in self.invoice_items:
+            if item['product_id'] == product_info['id']:
+                item['quantity'] += quantity
+                item['line_total'] = item['quantity'] * item['price_per_unit']
+                self.status_label.configure(text=f"Updated quantity for {selected_product}", text_color="green")
+                self.quantity_entry.delete(0, 'end')
+                self.update_invoice_display()
+                return
+
+        # If item is new, add it
+        item = {"product_id": product_info['id'], "name": selected_product, "quantity": quantity, "price_per_unit": product_info['price'], "line_total": quantity * product_info['price']}
+        self.invoice_items.append(item)
+        self.status_label.configure(text=f"Added {selected_product}", text_color="green")
+        self.quantity_entry.delete(0, 'end')
+        self.update_invoice_display()
+
+    def update_invoice_display(self):
+        for widget in self.items_display_frame.winfo_children():
+            widget.destroy()
+
+        header_frame = ctk.CTkFrame(self.items_display_frame)
+        header_frame.pack(fill="x", pady=(0,5))
+        header_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(header_frame, text="Product", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, sticky="w", padx=5)
+        ctk.CTkLabel(header_frame, text="Qty", font=ctk.CTkFont(weight="bold")).grid(row=0, column=1, padx=5)
+        ctk.CTkLabel(header_frame, text="Price", font=ctk.CTkFont(weight="bold")).grid(row=0, column=2, padx=5)
+        ctk.CTkLabel(header_frame, text="Total", font=ctk.CTkFont(weight="bold")).grid(row=0, column=3, padx=5)
+        ctk.CTkLabel(header_frame, text="Action", font=ctk.CTkFont(weight="bold")).grid(row=0, column=4, padx=5)
+
+        subtotal = 0.0
+        for item in self.invoice_items:
+            row_frame = ctk.CTkFrame(self.items_display_frame)
+            row_frame.pack(fill="x", pady=2, padx=2)
+            row_frame.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkLabel(row_frame, text=item['name'], anchor="w").grid(row=0, column=0, sticky="ew", padx=5)
+            
+            # --- UPDATED: Quantity is now an Entry widget ---
+            qty_entry = ctk.CTkEntry(row_frame, width=60)
+            qty_entry.insert(0, str(item['quantity']))
+            qty_entry.grid(row=0, column=1, padx=5)
+            qty_entry.bind("<Return>", lambda event, current_item=item, entry=qty_entry: self.update_item_quantity(current_item, entry.get()))
+
+            ctk.CTkLabel(row_frame, text=f"₹{item['price_per_unit']:.2f}").grid(row=0, column=2, padx=5)
+            ctk.CTkLabel(row_frame, text=f"₹{item['line_total']:.2f}").grid(row=0, column=3, padx=5)
+            
+            delete_button = ctk.CTkButton(row_frame, text="Delete", width=60, fg_color="#D32F2F", hover_color="#B71C1C",
+                                          command=lambda current_item=item: self.delete_invoice_item(current_item))
+            delete_button.grid(row=0, column=4, padx=5)
+            
+            subtotal += item['line_total']
+
+        try: discount_percent = float(self.discount_entry.get() or 0)
+        except ValueError: discount_percent = 0
+        try: cgst_percent = float(self.cgst_entry.get() or 0)
+        except ValueError: cgst_percent = 0
+        try: sgst_percent = float(self.sgst_entry.get() or 0)
+        except ValueError: sgst_percent = 0
+        
+        discount_amount = (subtotal * discount_percent) / 100
+        taxable_amount = subtotal - discount_amount
+        cgst_amount = (taxable_amount * cgst_percent) / 100
+        sgst_amount = (taxable_amount * sgst_percent) / 100
+        grand_total = taxable_amount + cgst_amount + sgst_amount
+        
+        self.subtotal_label.configure(text=f"Subtotal: ₹{subtotal:.2f}")
+        self.discount_amount_label.configure(text=f"Discount ({discount_percent}%): -₹{discount_amount:.2f}")
+        self.cgst_amount_label.configure(text=f"CGST ({cgst_percent}%): +₹{cgst_amount:.2f}")
+        self.sgst_amount_label.configure(text=f"SGST ({sgst_percent}%): +₹{sgst_amount:.2f}")
+        self.total_label.configure(text=f"Grand Total: ₹{grand_total:.2f}")
+
+    # ... (all other functions are unchanged)
     def go_back(self):
         self.reset_form()
         self.controller.show_frame("MainMenuFrame")
-
     def load_data(self):
         self.reset_form()
         self.load_customers()
         self.load_products()
-
     def reset_form(self):
         self.invoice_items = []
         self.status_label.configure(text="")
@@ -151,7 +267,6 @@ class InvoiceFrame(ctk.CTkFrame):
         self.load_customers()
         self.load_products()
         self.update_invoice_display()
-
     def toggle_new_customer_form(self):
         if self.new_customer_frame_visible:
             self.new_customer_frame.pack_forget()
@@ -159,7 +274,6 @@ class InvoiceFrame(ctk.CTkFrame):
         else:
             self.new_customer_frame.pack(fill="x", padx=10, pady=(0, 10), after=self.details_frame)
             self.new_customer_frame_visible = True
-
     def save_new_customer(self):
         name = self.new_customer_name_entry.get()
         phone = self.new_customer_phone_entry.get()
@@ -182,7 +296,6 @@ class InvoiceFrame(ctk.CTkFrame):
         finally:
             cursor.close()
             conn.close()
-
     def load_customers(self, search_term=""):
         conn, cursor = get_db_connection()
         if not conn: return
@@ -198,7 +311,6 @@ class InvoiceFrame(ctk.CTkFrame):
         current_text = self.customer_menu.get()
         self.customer_menu.configure(values=customer_names)
         self.customer_menu.set(current_text)
-
     def load_products(self, search_term=""):
         conn, cursor = get_db_connection()
         if not conn: return
@@ -214,87 +326,20 @@ class InvoiceFrame(ctk.CTkFrame):
         current_text = self.product_menu.get()
         self.product_menu.configure(values=product_names)
         self.product_menu.set(current_text)
-
     def search_customers(self, event=None):
         self.after(5, self._perform_customer_search)
-        
     def _perform_customer_search(self):
         search_term = self.customer_menu.get()
         self.load_customers(search_term)
         self.customer_menu._open_dropdown_menu()
-
     def customer_selected(self, selected_customer):
         pass
-
     def search_products(self, event=None):
         self.after(5, self._perform_product_search)
-
     def _perform_product_search(self):
         search_term = self.product_menu.get()
         self.load_products(search_term)
         self.product_menu._open_dropdown_menu()
-
-    def add_item_to_invoice(self):
-        selected_product = self.product_menu.get()
-        quantity_str = self.quantity_entry.get()
-        if "No products found" in selected_product or selected_product not in self.product_data:
-            self.status_label.configure(text="Please select a valid product.", text_color="red")
-            return
-        try:
-            quantity = int(quantity_str)
-            if quantity <= 0: raise ValueError("Quantity must be positive")
-        except ValueError:
-            self.status_label.configure(text="Invalid quantity.", text_color="red")
-            return
-        product_info = self.product_data[selected_product]
-        available_stock = product_info['stock']
-        quantity_in_cart = sum(item['quantity'] for item in self.invoice_items if item['product_id'] == product_info['id'])
-        if (quantity + quantity_in_cart) > available_stock:
-            messagebox.showwarning("Stock Error", f"Cannot add {quantity} of {selected_product}.\nOnly {available_stock - quantity_in_cart} left in stock.", parent=self)
-            return
-        item = {"product_id": product_info['id'], "name": selected_product, "quantity": quantity, "price_per_unit": product_info['price'], "line_total": quantity * product_info['price']}
-        self.invoice_items.append(item)
-        self.status_label.configure(text=f"Added {selected_product}", text_color="green")
-        self.quantity_entry.delete(0, 'end')
-        self.update_invoice_display()
-
-    def update_invoice_display(self):
-        self.items_list.configure(state="normal")
-        self.items_list.delete("1.0", "end")
-        header = f"{'Product':<30}{'Qty':<10}{'Price':<15}{'Total':<15}\n"
-        separator = "-"*70 + "\n"
-        self.items_list.insert("end", header)
-        self.items_list.insert("end", separator)
-        subtotal = 0.0
-        for item in self.invoice_items:
-            price_formatted = f"₹{item['price_per_unit']:.2f}"
-            total_formatted = f"₹{item['line_total']:.2f}"
-            line = f"{item['name']:<30}{item['quantity']:<10}{price_formatted:<15}{total_formatted:<15}\n"
-            self.items_list.insert("end", line)
-            subtotal += item['line_total']
-        self.items_list.configure(state="disabled")
-
-        try: discount_percent = float(self.discount_entry.get() or 0)
-        except ValueError: discount_percent = 0
-        
-        try: cgst_percent = float(self.cgst_entry.get() or 0)
-        except ValueError: cgst_percent = 0
-        
-        try: sgst_percent = float(self.sgst_entry.get() or 0)
-        except ValueError: sgst_percent = 0
-        
-        discount_amount = (subtotal * discount_percent) / 100
-        taxable_amount = subtotal - discount_amount
-        cgst_amount = (taxable_amount * cgst_percent) / 100
-        sgst_amount = (taxable_amount * sgst_percent) / 100
-        grand_total = taxable_amount + cgst_amount + sgst_amount
-        
-        self.subtotal_label.configure(text=f"Subtotal: ₹{subtotal:.2f}")
-        self.discount_amount_label.configure(text=f"Discount ({discount_percent}%): -₹{discount_amount:.2f}")
-        self.cgst_amount_label.configure(text=f"CGST ({cgst_percent}%): +₹{cgst_amount:.2f}")
-        self.sgst_amount_label.configure(text=f"SGST ({sgst_percent}%): +₹{sgst_amount:.2f}")
-        self.total_label.configure(text=f"Grand Total: ₹{grand_total:.2f}")
-
     def save_invoice(self):
         selected_customer = self.customer_menu.get()
         if "No customers found" in selected_customer or selected_customer not in self.customer_data:
@@ -306,20 +351,17 @@ class InvoiceFrame(ctk.CTkFrame):
         customer_id = self.customer_data[selected_customer]
         invoice_date = date.today().strftime("%Y-%m-%d")
         subtotal = sum(item['line_total'] for item in self.invoice_items)
-        
         try: discount_percent = float(self.discount_entry.get() or 0)
         except ValueError: discount_percent = 0
         try: cgst_percent = float(self.cgst_entry.get() or 0)
         except ValueError: cgst_percent = 0
         try: sgst_percent = float(self.sgst_entry.get() or 0)
         except ValueError: sgst_percent = 0
-        
         discount_amount = (subtotal * discount_percent) / 100
         taxable_amount = subtotal - discount_amount
         cgst_amount = (taxable_amount * cgst_percent) / 100
         sgst_amount = (taxable_amount * sgst_percent) / 100
         total_amount = taxable_amount + cgst_amount + sgst_amount
-
         conn, cursor = get_db_connection()
         if not conn: return
         try:
@@ -344,7 +386,6 @@ class InvoiceFrame(ctk.CTkFrame):
         finally:
             cursor.close()
             conn.close()
-
     def print_invoice(self):
         if self.last_saved_invoice_id is None: return
         conn, cursor = get_db_connection()
@@ -364,8 +405,7 @@ class InvoiceFrame(ctk.CTkFrame):
             "items": [dict(item) for item in items], "subtotal": main_details['subtotal_amount'],
             "discount_percent": main_details['discount_percent'],
             "discount_amount": (main_details['subtotal_amount'] * main_details['discount_percent']) / 100,
-            "cgst_percent": main_details['cgst_percent'],
-            "sgst_percent": main_details['sgst_percent'],
+            "cgst_percent": main_details['cgst_percent'], "sgst_percent": main_details['sgst_percent'],
             "total": main_details['total_amount']
         }
         pdf = generate_professional_pdf(invoice_data)
