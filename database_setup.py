@@ -15,25 +15,35 @@ def setup_database():
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # --- Create tables ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
-        price REAL NOT NULL, stock INTEGER DEFAULT 0 )
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        name TEXT NOT NULL UNIQUE,
+        price REAL NOT NULL, 
+        stock INTEGER DEFAULT 0,
+        category TEXT
+    )
     ''')
+    # --- UPDATED: Added notes column ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS customers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
-        phone TEXT, address TEXT )
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        name TEXT NOT NULL,
+        phone TEXT, 
+        address TEXT,
+        notes TEXT
+    )
     ''')
-    # --- UPDATED: Added subtotal and discount columns ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS invoices (
         id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER,
         invoice_date TEXT NOT NULL, 
         subtotal_amount REAL NOT NULL,
         discount_percent REAL DEFAULT 0,
+        cgst_percent REAL DEFAULT 0,
+        sgst_percent REAL DEFAULT 0,
         total_amount REAL NOT NULL,
+        status TEXT DEFAULT 'Unpaid',
         FOREIGN KEY (customer_id) REFERENCES customers (id) )
     ''')
     cursor.execute('''
