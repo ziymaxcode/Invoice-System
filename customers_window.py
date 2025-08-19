@@ -10,7 +10,6 @@ class CustomersFrame(ctk.CTkFrame):
         self.controller = controller
         self.selected_customer_id = None
 
-        # --- NEW: Pagination state ---
         self.current_page = 1
         self.customers_per_page = 20
 
@@ -55,7 +54,6 @@ class CustomersFrame(ctk.CTkFrame):
         self.scrollable_frame = ctk.CTkScrollableFrame(self.display_frame)
         self.scrollable_frame.pack(fill="both", expand=True)
 
-        # --- NEW: Pagination Controls ---
         pagination_frame = ctk.CTkFrame(self.display_frame)
         pagination_frame.pack(fill="x", pady=5)
         self.prev_button = ctk.CTkButton(pagination_frame, text="<< Previous", command=self.prev_page)
@@ -73,10 +71,14 @@ class CustomersFrame(ctk.CTkFrame):
         stats_frame.pack(side="left", fill="y", padx=10, pady=10)
         self.dashboard_title = ctk.CTkLabel(stats_frame, text="Customer Details", font=ctk.CTkFont(weight="bold"))
         self.dashboard_title.pack(anchor="w")
-        self.total_spent_label = ctk.CTkLabel(stats_frame, text="Total Spent: ₹0.00")
-        self.total_spent_label.pack(anchor="w")
-        self.last_purchase_label = ctk.CTkLabel(stats_frame, text="Last Purchase: N/A")
-        self.last_purchase_label.pack(anchor="w")
+        self.balance_label = ctk.CTkLabel(stats_frame, text="Current Balance: ₹0.00")
+        self.balance_label.pack(anchor="w")
+        self.last_transaction_label = ctk.CTkLabel(stats_frame, text="Last Transaction: N/A")
+        self.last_transaction_label.pack(anchor="w")
+        
+        view_statement_button = ctk.CTkButton(stats_frame, text="View Statement", command=self.view_statement)
+        view_statement_button.pack(anchor="w", pady=10)
+        
         notes_frame = ctk.CTkFrame(self.dashboard_frame)
         notes_frame.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         ctk.CTkLabel(notes_frame, text="Customer Notes:", font=ctk.CTkFont(weight="bold")).pack(anchor="w")
@@ -84,6 +86,10 @@ class CustomersFrame(ctk.CTkFrame):
         self.notes_textbox.pack(fill="x", expand=True)
         save_notes_button = ctk.CTkButton(notes_frame, text="Save Notes", command=self.save_notes)
         save_notes_button.pack(anchor="e", pady=5)
+
+    def view_statement(self):
+        if self.selected_customer_id:
+            self.controller.show_frame("StatementFrame", customer_id=self.selected_customer_id)
 
     def load_data(self):
         self.load_customers(reset_page=True)
@@ -128,7 +134,7 @@ class CustomersFrame(ctk.CTkFrame):
             cursor.execute(query, tuple(params))
             customers = cursor.fetchall()
 
-            self.page_label.configure(text=f"Page {self.current_page} / {total_pages}")
+            self.page_label.configure(text=f"Page {self.current_page} / {total_pages if total_pages > 0 else 1}")
             self.prev_button.configure(state="normal" if self.current_page > 1 else "disabled")
             self.next_button.configure(state="normal" if self.current_page < total_pages else "disabled")
 
@@ -154,7 +160,45 @@ class CustomersFrame(ctk.CTkFrame):
             if conn:
                 conn.close()
 
-    # ... (all other functions are unchanged)
+    def display_customer_details(self, customer):
+        self.selected_customer_id = customer['id']
+        self.dashboard_frame.pack(fill="x", pady=5)
+        self.dashboard_title.configure(text=f"Dashboard for: {customer['name']}")
+        
+        self.notes_textbox.delete("1.0", "end")
+        if customer['notes']:
+            self.notes_textbox.insert("1.0", customer['notes'])
+
+        conn, cursor = get_db_connection()
+        if not conn: return
+        try:
+            cursor.execute("SELECT balance FROM customers WHERE id = ?", (customer['id'],))
+            balance = cursor.fetchone()['balance'] or 0
+            balance_status = "Dr (Will give)" if balance > 0 else "Cr (Will get)"
+            self.balance_label.configure(text=f"Current Balance: ₹{abs(balance):.2f} {balance_status}")
+
+            cursor.execute("SELECT MAX(transaction_date) as last_date FROM transactions WHERE customer_id = ?", (customer['id'],))
+            last_date = cursor.fetchone()['last_date'] or "N/A"
+            self.last_transaction_label.configure(text=f"Last Transaction: {last_date}")
+        except sqlite3.Error as e:
+            print(f"Error fetching dashboard data: {e}")
+        finally:
+            conn.close()
+
+    def save_notes(self):
+        if self.selected_customer_id is None: return
+        notes = self.notes_textbox.get("1.0", "end-1c")
+        conn, cursor = get_db_connection()
+        if not conn: return
+        try:
+            cursor.execute("UPDATE customers SET notes = ? WHERE id = ?", (notes, self.selected_customer_id))
+            conn.commit()
+            messagebox.showinfo("Success", "Notes saved successfully.", parent=self)
+        except sqlite3.Error as e:
+            messagebox.showerror("Database Error", f"Could not save notes: {e}", parent=self)
+        finally:
+            conn.close()
+
     def clear_form(self, set_add_mode=True):
         self.name_entry.delete(0, 'end')
         self.phone_entry.delete(0, 'end')
@@ -228,36 +272,3 @@ class CustomersFrame(ctk.CTkFrame):
                 self.status_label.configure(text=f"Error: {err}", text_color="red")
             finally:
                 conn.close()
-    def display_customer_details(self, customer):
-        self.selected_customer_id = customer['id']
-        self.dashboard_frame.pack(fill="x", pady=5)
-        self.dashboard_title.configure(text=f"Dashboard for: {customer['name']}")
-        self.notes_textbox.delete("1.0", "end")
-        if customer['notes']:
-            self.notes_textbox.insert("1.0", customer['notes'])
-        conn, cursor = get_db_connection()
-        if not conn: return
-        try:
-            cursor.execute("SELECT SUM(total_amount) as total FROM invoices WHERE customer_id = ?", (customer['id'],))
-            total_spent = cursor.fetchone()['total'] or 0
-            self.total_spent_label.configure(text=f"Total Spent: ₹{total_spent:.2f}")
-            cursor.execute("SELECT MAX(invoice_date) as last_date FROM invoices WHERE customer_id = ?", (customer['id'],))
-            last_date = cursor.fetchone()['last_date'] or "N/A"
-            self.last_purchase_label.configure(text=f"Last Purchase: {last_date}")
-        except sqlite3.Error as e:
-            print(f"Error fetching dashboard data: {e}")
-        finally:
-            conn.close()
-    def save_notes(self):
-        if self.selected_customer_id is None: return
-        notes = self.notes_textbox.get("1.0", "end-1c")
-        conn, cursor = get_db_connection()
-        if not conn: return
-        try:
-            cursor.execute("UPDATE customers SET notes = ? WHERE id = ?", (notes, self.selected_customer_id))
-            conn.commit()
-            messagebox.showinfo("Success", "Notes saved successfully.", parent=self)
-        except sqlite3.Error as e:
-            messagebox.showerror("Database Error", f"Could not save notes: {e}", parent=self)
-        finally:
-            conn.close()

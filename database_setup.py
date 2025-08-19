@@ -24,14 +24,15 @@ def setup_database():
         category TEXT
     )
     ''')
-    # --- UPDATED: Added notes column ---
+    # --- UPDATED: Added balance column ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         name TEXT NOT NULL,
         phone TEXT, 
         address TEXT,
-        notes TEXT
+        notes TEXT,
+        balance REAL DEFAULT 0.0
     )
     ''')
     cursor.execute('''
@@ -53,6 +54,39 @@ def setup_database():
         price_per_unit REAL NOT NULL,
         FOREIGN KEY (invoice_id) REFERENCES invoices (id),
         FOREIGN KEY (product_id) REFERENCES products (id) )
+    ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS returns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        original_invoice_id INTEGER NOT NULL,
+        return_date TEXT NOT NULL,
+        total_refund REAL NOT NULL,
+        FOREIGN KEY (original_invoice_id) REFERENCES invoices (id)
+    )
+    ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS return_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        return_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        price_per_unit REAL NOT NULL,
+        FOREIGN KEY (return_id) REFERENCES returns (id),
+        FOREIGN KEY (product_id) REFERENCES products (id)
+    )
+    ''')
+    # --- NEW: Transactions Table ---
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL,
+        transaction_date TEXT NOT NULL,
+        details TEXT,
+        debit REAL DEFAULT 0.0,
+        credit REAL DEFAULT 0.0,
+        balance_after REAL NOT NULL,
+        FOREIGN KEY (customer_id) REFERENCES customers (id)
+    )
     ''')
     
     conn.commit()

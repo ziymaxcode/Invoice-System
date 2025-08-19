@@ -7,7 +7,9 @@ import csv
 import tempfile
 import sys
 import math
-from pdf_generator import generate_professional_pdf
+# --- UPDATED: Import the new PDF generator function ---
+from pdf_generator import generate_professional_pdf, generate_sales_ledger_pdf
+from tkcalendar import Calendar 
 
 class ViewInvoicesFrame(ctk.CTkFrame):
     def __init__(self, parent, controller):
@@ -16,7 +18,6 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         self.current_invoice_details = None
         self.current_invoices_data = []
 
-        # --- NEW: Pagination state ---
         self.current_page = 1
         self.invoices_per_page = 20
 
@@ -35,14 +36,32 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         self.list_frame = ctk.CTkFrame(content_frame, width=450)
         self.list_frame.pack(side="left", fill="y", padx=10, pady=10)
         
-        filter_frame = ctk.CTkFrame(self.list_frame)
-        filter_frame.pack(fill="x", padx=5, pady=5)
-        self.start_date_entry = ctk.CTkEntry(filter_frame, placeholder_text="Start Date (YYYY-MM-DD)")
-        self.start_date_entry.pack(side="left", fill="x", expand=True, padx=(0,5))
-        self.end_date_entry = ctk.CTkEntry(filter_frame, placeholder_text="End Date (YYYY-MM-DD)")
+        self.filter_frame = ctk.CTkFrame(self.list_frame)
+        self.filter_frame.pack(fill="x", padx=5, pady=5)
+        
+        start_date_frame = ctk.CTkFrame(self.filter_frame)
+        start_date_frame.pack(side="left", fill="x", expand=True, padx=(0,5))
+        self.start_date_entry = ctk.CTkEntry(start_date_frame, placeholder_text="Start Date")
+        self.start_date_entry.pack(side="left", fill="x", expand=True)
+        start_cal_button = ctk.CTkButton(start_date_frame, text="🗓️", width=30, command=lambda: self.toggle_calendar(self.start_date_entry))
+        start_cal_button.pack(side="left")
+
+        end_date_frame = ctk.CTkFrame(self.filter_frame)
+        end_date_frame.pack(side="left", fill="x", expand=True)
+        self.end_date_entry = ctk.CTkEntry(end_date_frame, placeholder_text="End Date")
         self.end_date_entry.pack(side="left", fill="x", expand=True)
-        filter_button = ctk.CTkButton(filter_frame, text="Filter", width=50, command=self.filter_invoices)
+        end_cal_button = ctk.CTkButton(end_date_frame, text="🗓️", width=30, command=lambda: self.toggle_calendar(self.end_date_entry))
+        end_cal_button.pack(side="left")
+
+        filter_button = ctk.CTkButton(self.filter_frame, text="Filter", width=50, command=self.filter_invoices)
         filter_button.pack(side="left", padx=5)
+
+        self.calendar_container = ctk.CTkFrame(self.list_frame)
+        self.cal = Calendar(self.calendar_container, selectmode='day', date_pattern='yyyy-mm-dd')
+        self.cal.pack(pady=10, padx=10)
+        cal_select_button = ctk.CTkButton(self.calendar_container, text="Select Date", command=self.set_date)
+        cal_select_button.pack(pady=10)
+        self.active_date_entry = None
 
         self.search_frame = ctk.CTkFrame(self.list_frame)
         self.search_frame.pack(fill="x", padx=5, pady=5)
@@ -56,7 +75,6 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         self.invoice_list_frame = ctk.CTkScrollableFrame(self.list_frame)
         self.invoice_list_frame.pack(fill="both", expand=True)
 
-        # --- NEW: Pagination Controls ---
         pagination_frame = ctk.CTkFrame(self.list_frame)
         pagination_frame.pack(fill="x", pady=5)
         self.prev_button = ctk.CTkButton(pagination_frame, text="<< Previous", command=self.prev_page)
@@ -72,8 +90,13 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         self.total_sales_label.pack(anchor="w")
         self.invoice_count_label = ctk.CTkLabel(summary_frame, text="Invoices Shown: 0")
         self.invoice_count_label.pack(anchor="w")
-        export_button = ctk.CTkButton(summary_frame, text="Export List to CSV", command=self.export_to_csv)
-        export_button.pack(fill="x", pady=5)
+        
+        export_frame = ctk.CTkFrame(summary_frame)
+        export_frame.pack(fill="x", pady=5)
+        export_csv_button = ctk.CTkButton(export_frame, text="Export List to CSV", command=self.export_to_csv)
+        export_csv_button.pack(side="left", expand=True, padx=(0,5))
+        export_ledger_button = ctk.CTkButton(export_frame, text="Save Sales Ledger", command=self.generate_sales_ledger)
+        export_ledger_button.pack(side="left", expand=True, padx=(5,0))
 
         # --- Right Panel (Details) ---
         self.details_frame = ctk.CTkFrame(content_frame)
@@ -89,79 +112,114 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         self.pdf_button = ctk.CTkButton(button_frame, text="Save to PDF", command=self.generate_pdf, state="disabled")
         self.pdf_button.pack(side="left", padx=5)
 
+    def generate_sales_ledger(self):
+        if not self.current_invoices_data:
+            messagebox.showinfo("Export Info", "No data to generate a ledger.", parent=self)
+            return
+
+        conn, cursor = get_db_connection()
+        if not conn: return
+
+        try:
+            for inv in self.current_invoices_data:
+                cursor.execute("SELECT p.name FROM invoice_items ii JOIN products p ON ii.product_id = p.id WHERE ii.invoice_id = ?", (inv['id'],))
+                items = cursor.fetchall()
+                inv['items'] = [dict(item) for item in items]
+        finally:
+            conn.close()
+
+        ledger_data = {
+            "invoices": self.current_invoices_data,
+            "start_date": self.start_date_entry.get() or "Start",
+            "end_date": self.end_date_entry.get() or "Today"
+        }
+
+        pdf = generate_sales_ledger_pdf(ledger_data)
+        if pdf:
+            try:
+                filepath = filedialog.asksaveasfilename(
+                    defaultextension=".pdf",
+                    filetypes=[("PDF Documents", "*.pdf")],
+                    initialfile=f"Sales_Ledger_{ledger_data['start_date']}_to_{ledger_data['end_date']}.pdf",
+                    title="Save Sales Ledger as PDF"
+                )
+                if not filepath: return
+                pdf.output(filepath)
+                messagebox.showinfo("Success", f"Ledger saved successfully to:\n{filepath}", parent=self)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save Ledger PDF: {e}", parent=self)
+
+    def toggle_calendar(self, entry_widget):
+        if self.calendar_container.winfo_ismapped() and self.active_date_entry == entry_widget:
+            self.calendar_container.pack_forget()
+            self.active_date_entry = None
+        else:
+            self.active_date_entry = entry_widget
+            self.calendar_container.pack(fill="x", padx=5, pady=5, after=self.filter_frame)
+    def set_date(self):
+        if self.active_date_entry:
+            selected_date = self.cal.get_date()
+            self.active_date_entry.delete(0, 'end')
+            self.active_date_entry.insert(0, selected_date)
+            self.calendar_container.pack_forget()
+            self.active_date_entry = None
     def filter_invoices(self):
         self.load_invoice_list(reset_page=True)
-
     def load_data(self):
         self.clear_search()
-
+        self.calendar_container.pack_forget()
     def next_page(self):
         self.current_page += 1
         self.load_invoice_list()
-
     def prev_page(self):
         if self.current_page > 1:
             self.current_page -= 1
             self.load_invoice_list()
-
     def load_invoice_list(self, reset_page=False):
         if reset_page:
             self.current_page = 1
-
         for widget in self.invoice_list_frame.winfo_children():
             widget.destroy()
         conn, cursor = get_db_connection()
         if not conn: return
-        
         count_query = "SELECT COUNT(i.id) FROM invoices i JOIN customers c ON i.customer_id = c.id WHERE 1=1"
         query = "SELECT i.id, i.invoice_date, i.total_amount, i.status, c.name FROM invoices i JOIN customers c ON i.customer_id = c.id WHERE 1=1"
         params = []
-        
         search_term = self.search_entry.get()
         if search_term:
             filter_clause = " AND c.name LIKE ?"
             count_query += filter_clause
             query += filter_clause
             params.append(f"%{search_term}%")
-        
         start_date = self.start_date_entry.get()
         if start_date:
             filter_clause = " AND i.invoice_date >= ?"
             count_query += filter_clause
             query += filter_clause
             params.append(start_date)
-            
         end_date = self.end_date_entry.get()
         if end_date:
             filter_clause = " AND i.invoice_date <= ?"
             count_query += filter_clause
             query += filter_clause
             params.append(end_date)
-        
         cursor.execute(count_query, tuple(params))
         total_invoices = cursor.fetchone()[0]
         total_pages = math.ceil(total_invoices / self.invoices_per_page)
-
         query += " ORDER BY i.id DESC LIMIT ? OFFSET ?"
         offset = (self.current_page - 1) * self.invoices_per_page
         params.extend([self.invoices_per_page, offset])
-        
         cursor.execute(query, tuple(params))
         invoices = cursor.fetchall()
-        
         full_query = query.rsplit('LIMIT', 1)[0]
         cursor.execute(full_query, tuple(params[:-2]))
         all_filtered_invoices = cursor.fetchall()
-        
         conn.close()
-        
         self.current_invoices_data = [dict(row) for row in all_filtered_invoices]
         self.update_summary_panel()
-
         if not invoices:
             ctk.CTkLabel(self.invoice_list_frame, text="No invoices found.").pack()
             return
-
         for invoice in invoices:
             row_frame = ctk.CTkFrame(self.invoice_list_frame)
             row_frame.pack(fill="x", padx=2, pady=2)
@@ -170,20 +228,15 @@ class ViewInvoicesFrame(ctk.CTkFrame):
             status_indicator = ctk.CTkLabel(row_frame, text="●", text_color=status_color, width=10)
             status_indicator.grid(row=0, column=0, padx=(5,0))
             button_text = f"Inv #{invoice['id']} - {invoice['name']} - ₹{invoice['total_amount']:.2f}"
-            btn = ctk.CTkButton(row_frame, text=button_text, fg_color="transparent", hover=False, anchor="w",
-                                command=lambda inv_id=invoice['id']: self.display_invoice_details(inv_id))
+            btn = ctk.CTkButton(row_frame, text=button_text, fg_color="transparent", hover=False, anchor="w", command=lambda inv_id=invoice['id']: self.display_invoice_details(inv_id))
             btn.grid(row=0, column=1, sticky="ew")
-            toggle_status_btn = ctk.CTkButton(row_frame, text="Paid/Unpaid", width=80,
-                                              command=lambda inv_id=invoice['id'], status=invoice['status']: self.toggle_status(inv_id, status))
+            toggle_status_btn = ctk.CTkButton(row_frame, text="Paid/Unpaid", width=80, command=lambda inv_id=invoice['id'], status=invoice['status']: self.toggle_status(inv_id, status))
             toggle_status_btn.grid(row=0, column=2, padx=2)
-            delete_btn = ctk.CTkButton(row_frame, text="Del", width=40, fg_color="#D32F2F", hover_color="#B71C1C",
-                                       command=lambda inv_id=invoice['id']: self.delete_invoice(inv_id))
+            delete_btn = ctk.CTkButton(row_frame, text="Del", width=40, fg_color="#D32F2F", hover_color="#B71C1C", command=lambda inv_id=invoice['id']: self.delete_invoice(inv_id))
             delete_btn.grid(row=0, column=3, padx=(0,2))
-        
         self.page_label.configure(text=f"Page {self.current_page} / {total_pages if total_pages > 0 else 1}")
         self.prev_button.configure(state="normal" if self.current_page > 1 else "disabled")
         self.next_button.configure(state="normal" if self.current_page < total_pages else "disabled")
-
     def clear_search(self):
         self.search_entry.delete(0, 'end')
         self.start_date_entry.delete(0, 'end')
