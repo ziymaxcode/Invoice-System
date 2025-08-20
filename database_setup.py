@@ -15,16 +15,15 @@ def setup_database():
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    # --- UPDATED: Removed 'stock' column ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         name TEXT NOT NULL UNIQUE,
         price REAL NOT NULL, 
-        stock INTEGER DEFAULT 0,
         category TEXT
     )
     ''')
-    # --- UPDATED: Added balance column ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -41,8 +40,6 @@ def setup_database():
         invoice_date TEXT NOT NULL, 
         subtotal_amount REAL NOT NULL,
         discount_percent REAL DEFAULT 0,
-        cgst_percent REAL DEFAULT 0,
-        sgst_percent REAL DEFAULT 0,
         total_amount REAL NOT NULL,
         status TEXT DEFAULT 'Unpaid',
         FOREIGN KEY (customer_id) REFERENCES customers (id) )
@@ -75,7 +72,6 @@ def setup_database():
         FOREIGN KEY (product_id) REFERENCES products (id)
     )
     ''')
-    # --- NEW: Transactions Table ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

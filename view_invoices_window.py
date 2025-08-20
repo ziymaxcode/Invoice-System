@@ -7,7 +7,7 @@ import csv
 import tempfile
 import sys
 import math
-# --- UPDATED: Import the new PDF generator function ---
+from datetime import datetime # Import datetime for conversion
 from pdf_generator import generate_professional_pdf, generate_sales_ledger_pdf
 from tkcalendar import Calendar 
 
@@ -41,14 +41,16 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         
         start_date_frame = ctk.CTkFrame(self.filter_frame)
         start_date_frame.pack(side="left", fill="x", expand=True, padx=(0,5))
-        self.start_date_entry = ctk.CTkEntry(start_date_frame, placeholder_text="Start Date")
+        # --- UPDATED: Placeholder text ---
+        self.start_date_entry = ctk.CTkEntry(start_date_frame, placeholder_text="Start Date (DD-MM-YYYY)")
         self.start_date_entry.pack(side="left", fill="x", expand=True)
         start_cal_button = ctk.CTkButton(start_date_frame, text="🗓️", width=30, command=lambda: self.toggle_calendar(self.start_date_entry))
         start_cal_button.pack(side="left")
 
         end_date_frame = ctk.CTkFrame(self.filter_frame)
         end_date_frame.pack(side="left", fill="x", expand=True)
-        self.end_date_entry = ctk.CTkEntry(end_date_frame, placeholder_text="End Date")
+        # --- UPDATED: Placeholder text ---
+        self.end_date_entry = ctk.CTkEntry(end_date_frame, placeholder_text="End Date (DD-MM-YYYY)")
         self.end_date_entry.pack(side="left", fill="x", expand=True)
         end_cal_button = ctk.CTkButton(end_date_frame, text="🗓️", width=30, command=lambda: self.toggle_calendar(self.end_date_entry))
         end_cal_button.pack(side="left")
@@ -57,7 +59,8 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         filter_button.pack(side="left", padx=5)
 
         self.calendar_container = ctk.CTkFrame(self.list_frame)
-        self.cal = Calendar(self.calendar_container, selectmode='day', date_pattern='yyyy-mm-dd')
+        # --- UPDATED: Calendar date pattern ---
+        self.cal = Calendar(self.calendar_container, selectmode='day', date_pattern='dd-mm-y')
         self.cal.pack(pady=10, padx=10)
         cal_select_button = ctk.CTkButton(self.calendar_container, text="Select Date", command=self.set_date)
         cal_select_button.pack(pady=10)
@@ -112,43 +115,6 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         self.pdf_button = ctk.CTkButton(button_frame, text="Save to PDF", command=self.generate_pdf, state="disabled")
         self.pdf_button.pack(side="left", padx=5)
 
-    def generate_sales_ledger(self):
-        if not self.current_invoices_data:
-            messagebox.showinfo("Export Info", "No data to generate a ledger.", parent=self)
-            return
-
-        conn, cursor = get_db_connection()
-        if not conn: return
-
-        try:
-            for inv in self.current_invoices_data:
-                cursor.execute("SELECT p.name FROM invoice_items ii JOIN products p ON ii.product_id = p.id WHERE ii.invoice_id = ?", (inv['id'],))
-                items = cursor.fetchall()
-                inv['items'] = [dict(item) for item in items]
-        finally:
-            conn.close()
-
-        ledger_data = {
-            "invoices": self.current_invoices_data,
-            "start_date": self.start_date_entry.get() or "Start",
-            "end_date": self.end_date_entry.get() or "Today"
-        }
-
-        pdf = generate_sales_ledger_pdf(ledger_data)
-        if pdf:
-            try:
-                filepath = filedialog.asksaveasfilename(
-                    defaultextension=".pdf",
-                    filetypes=[("PDF Documents", "*.pdf")],
-                    initialfile=f"Sales_Ledger_{ledger_data['start_date']}_to_{ledger_data['end_date']}.pdf",
-                    title="Save Sales Ledger as PDF"
-                )
-                if not filepath: return
-                pdf.output(filepath)
-                messagebox.showinfo("Success", f"Ledger saved successfully to:\n{filepath}", parent=self)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to save Ledger PDF: {e}", parent=self)
-
     def toggle_calendar(self, entry_widget):
         if self.calendar_container.winfo_ismapped() and self.active_date_entry == entry_widget:
             self.calendar_container.pack_forget()
@@ -175,6 +141,7 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         if self.current_page > 1:
             self.current_page -= 1
             self.load_invoice_list()
+    
     def load_invoice_list(self, reset_page=False):
         if reset_page:
             self.current_page = 1
@@ -182,27 +149,41 @@ class ViewInvoicesFrame(ctk.CTkFrame):
             widget.destroy()
         conn, cursor = get_db_connection()
         if not conn: return
+        
         count_query = "SELECT COUNT(i.id) FROM invoices i JOIN customers c ON i.customer_id = c.id WHERE 1=1"
         query = "SELECT i.id, i.invoice_date, i.total_amount, i.status, c.name FROM invoices i JOIN customers c ON i.customer_id = c.id WHERE 1=1"
         params = []
+        
         search_term = self.search_entry.get()
         if search_term:
             filter_clause = " AND c.name LIKE ?"
             count_query += filter_clause
             query += filter_clause
             params.append(f"%{search_term}%")
-        start_date = self.start_date_entry.get()
-        if start_date:
-            filter_clause = " AND i.invoice_date >= ?"
-            count_query += filter_clause
-            query += filter_clause
-            params.append(start_date)
-        end_date = self.end_date_entry.get()
-        if end_date:
-            filter_clause = " AND i.invoice_date <= ?"
-            count_query += filter_clause
-            query += filter_clause
-            params.append(end_date)
+        
+        # --- UPDATED: Convert date format for SQL query ---
+        start_date_str = self.start_date_entry.get()
+        if start_date_str:
+            try:
+                start_date_sql = datetime.strptime(start_date_str, '%d-%m-%Y').strftime('%Y-%m-%d')
+                query += " AND i.invoice_date >= ?"
+                count_query += " AND i.invoice_date >= ?"
+                params.append(start_date_sql)
+            except ValueError:
+                messagebox.showwarning("Invalid Date", "Please enter Start Date in DD-MM-YYYY format.", parent=self)
+                return
+            
+        end_date_str = self.end_date_entry.get()
+        if end_date_str:
+            try:
+                end_date_sql = datetime.strptime(end_date_str, '%d-%m-%Y').strftime('%Y-%m-%d')
+                query += " AND i.invoice_date <= ?"
+                count_query += " AND i.invoice_date <= ?"
+                params.append(end_date_sql)
+            except ValueError:
+                messagebox.showwarning("Invalid Date", "Please enter End Date in DD-MM-YYYY format.", parent=self)
+                return
+            
         cursor.execute(count_query, tuple(params))
         total_invoices = cursor.fetchone()[0]
         total_pages = math.ceil(total_invoices / self.invoices_per_page)
@@ -253,52 +234,56 @@ class ViewInvoicesFrame(ctk.CTkFrame):
         count = len(self.current_invoices_data)
         self.total_sales_label.configure(text=f"Total Sales (Filtered): ₹{total_sales:.2f}")
         self.invoice_count_label.configure(text=f"Invoices Shown: {count}")
+    
     def display_invoice_details(self, invoice_id):
         conn, cursor = get_db_connection()
         if not conn: return
-        query_main = "SELECT * FROM invoices i JOIN customers c ON i.customer_id = c.id WHERE i.id = ?"
-        cursor.execute(query_main, (invoice_id,))
-        main_details = cursor.fetchone()
-        query_items = "SELECT ii.quantity, ii.price_per_unit, p.name FROM invoice_items ii JOIN products p ON ii.product_id = p.id WHERE ii.invoice_id = ?"
-        cursor.execute(query_items, (invoice_id,))
-        items = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        if not main_details: return
-        invoice_data = {
-            "id": main_details['id'], "date": main_details['invoice_date'],
-            "customer_name": main_details['name'], "customer_phone": main_details['phone'],
-            "items": [dict(item) for item in items], "subtotal": main_details['subtotal_amount'],
-            "discount_percent": main_details['discount_percent'],
-            "discount_amount": (main_details['subtotal_amount'] * main_details['discount_percent']) / 100,
-            "cgst_percent": main_details['cgst_percent'], "sgst_percent": main_details['sgst_percent'],
-            "total": main_details['total_amount']
-        }
-        details_text = (f"Invoice #: {invoice_data['id']}\nDate: {invoice_data['date']}\n\n" f"Bill To:\n  {invoice_data['customer_name']}\n")
-        if invoice_data['customer_phone']: details_text += f"  {invoice_data['customer_phone']}\n"
-        details_text += "="*50 + "\n\n"
-        details_text += f"{'Product':<30}{'Qty':<10}{'Price':<15}{'Total':<15}\n" + "-"*70 + "\n"
-        for item in invoice_data['items']:
-            price_formatted = f"₹{item['price_per_unit']:.2f}"
-            total_formatted = f"₹{item['quantity'] * item['price_per_unit']:.2f}"
-            details_text += f"{item['name']:<30}{item['quantity']:<10}{price_formatted:<15}{total_formatted:<15}\n"
-        taxable_amount = invoice_data['subtotal'] - invoice_data['discount_amount']
-        cgst_amount = (taxable_amount * invoice_data['cgst_percent']) / 100
-        sgst_amount = (taxable_amount * invoice_data['sgst_percent']) / 100
-        details_text += "\n" + "-"*70 + "\n"
-        details_text += f"{'SUBTOTAL:':>55} ₹{invoice_data['subtotal']:.2f}\n"
-        details_text += f"{f'DISCOUNT ({invoice_data['discount_percent']}%):':>55} -₹{invoice_data['discount_amount']:.2f}\n"
-        details_text += f"{f'CGST ({invoice_data['cgst_percent']}%):':>55} +₹{cgst_amount:.2f}\n"
-        details_text += f"{f'SGST ({invoice_data['sgst_percent']}%):':>55} +₹{sgst_amount:.2f}\n"
-        details_text += "="*50 + "\n"
-        details_text += f"{'GRAND TOTAL:':>55} ₹{invoice_data['total']:.2f}\n"
-        self.details_textbox.configure(state="normal")
-        self.details_textbox.delete("1.0", "end")
-        self.details_textbox.insert("1.0", details_text)
-        self.details_textbox.configure(state="disabled")
-        self.current_invoice_details = invoice_data
-        self.pdf_button.configure(state="normal")
-        self.open_pdf_button.configure(state="normal")
+        try:
+            query_main = "SELECT * FROM invoices i JOIN customers c ON i.customer_id = c.id WHERE i.id = ?"
+            cursor.execute(query_main, (invoice_id,))
+            main_details = cursor.fetchone()
+            query_items = "SELECT ii.quantity, ii.price_per_unit, p.name FROM invoice_items ii JOIN products p ON ii.product_id = p.id WHERE ii.invoice_id = ?"
+            cursor.execute(query_items, (invoice_id,))
+            items = cursor.fetchall()
+            if not main_details: return
+
+            invoice_data = {
+                "id": main_details['id'], "date": main_details['invoice_date'],
+                "customer_name": main_details['name'], "customer_phone": main_details['phone'],
+                "items": [dict(item) for item in items], "subtotal": main_details['subtotal_amount'],
+                "discount_percent": main_details['discount_percent'],
+                "discount_amount": (main_details['subtotal_amount'] * main_details['discount_percent']) / 100,
+                "total": main_details['total_amount']
+            }
+            # --- UPDATED: Reformat date for display ---
+            display_date = datetime.strptime(invoice_data['date'], '%Y-%m-%d').strftime('%d-%m-%Y')
+            details_text = (f"Invoice #: {invoice_data['id']}\nDate: {display_date}\n\n" f"Bill To:\n  {invoice_data['customer_name']}\n")
+            if invoice_data['customer_phone']: details_text += f"  {invoice_data['customer_phone']}\n"
+            details_text += "="*50 + "\n\n"
+            details_text += f"{'Product':<30}{'Qty':<10}{'Price':<15}{'Total':<15}\n" + "-"*70 + "\n"
+            for item in invoice_data['items']:
+                price_formatted = f"₹{item['price_per_unit']:.2f}"
+                total_formatted = f"₹{item['quantity'] * item['price_per_unit']:.2f}"
+                details_text += f"{item['name']:<30}{item['quantity']:<10}{price_formatted:<15}{total_formatted:<15}\n"
+            details_text += "\n" + "-"*70 + "\n"
+            details_text += f"{'SUBTOTAL:':>55} ₹{invoice_data['subtotal']:.2f}\n"
+            details_text += f"{f'DISCOUNT ({invoice_data['discount_percent']}%):':>55} -₹{invoice_data['discount_amount']:.2f}\n"
+            details_text += "="*50 + "\n"
+            details_text += f"{'GRAND TOTAL:':>55} ₹{invoice_data['total']:.2f}\n"
+            
+            self.details_textbox.configure(state="normal")
+            self.details_textbox.delete("1.0", "end")
+            self.details_textbox.insert("1.0", details_text)
+            self.details_textbox.configure(state="disabled")
+            self.current_invoice_details = invoice_data
+            self.pdf_button.configure(state="normal")
+            self.open_pdf_button.configure(state="normal")
+        except sqlite3.Error as e:
+            messagebox.showerror("Database Error", f"Could not display invoice details: {e}", parent=self.controller)
+        finally:
+            if conn:
+                conn.close()
+
     def generate_pdf(self):
         if not self.current_invoice_details: return
         try:
@@ -376,3 +361,40 @@ class ViewInvoicesFrame(ctk.CTkFrame):
             messagebox.showinfo("Success", f"Data exported successfully to:\n{filepath}", parent=self.controller)
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export to CSV: {e}", parent=self.controller)
+
+    def generate_sales_ledger(self):
+        if not self.current_invoices_data:
+            messagebox.showinfo("Export Info", "No data to generate a ledger.", parent=self)
+            return
+
+        conn, cursor = get_db_connection()
+        if not conn: return
+
+        try:
+            for inv in self.current_invoices_data:
+                cursor.execute("SELECT p.name FROM invoice_items ii JOIN products p ON ii.product_id = p.id WHERE ii.invoice_id = ?", (inv['id'],))
+                items = cursor.fetchall()
+                inv['items'] = [dict(item) for item in items]
+        finally:
+            conn.close()
+
+        ledger_data = {
+            "invoices": self.current_invoices_data,
+            "start_date": self.start_date_entry.get() or "Start",
+            "end_date": self.end_date_entry.get() or "Today"
+        }
+
+        pdf = generate_sales_ledger_pdf(ledger_data)
+        if pdf:
+            try:
+                filepath = filedialog.asksaveasfilename(
+                    defaultextension=".pdf",
+                    filetypes=[("PDF Documents", "*.pdf")],
+                    initialfile=f"Sales_Ledger_{ledger_data['start_date']}_to_{ledger_data['end_date']}.pdf",
+                    title="Save Sales Ledger as PDF"
+                )
+                if not filepath: return
+                pdf.output(filepath)
+                messagebox.showinfo("Success", f"Ledger saved successfully to:\n{filepath}", parent=self)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save Ledger PDF: {e}", parent=self)

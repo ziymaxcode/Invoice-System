@@ -5,7 +5,7 @@ from tkinter import messagebox, filedialog
 import os
 import sys
 import tempfile
-# --- UPDATED: Corrected the function name to import ---
+from datetime import date
 from pdf_generator import generate_statement_pdf
 
 class StatementFrame(ctk.CTkFrame):
@@ -13,7 +13,7 @@ class StatementFrame(ctk.CTkFrame):
         super().__init__(parent)
         self.controller = controller
         self.customer_id = None
-        self.statement_data = {} # To store data for PDF
+        self.statement_data = {}
 
         # --- Top Bar ---
         top_bar = ctk.CTkFrame(self)
@@ -28,6 +28,25 @@ class StatementFrame(ctk.CTkFrame):
         summary_frame.pack(fill="x", padx=10, pady=5)
         self.net_balance_label = ctk.CTkLabel(summary_frame, text="Net Balance: ₹0.00", font=ctk.CTkFont(size=16, weight="bold"))
         self.net_balance_label.pack(pady=5)
+
+        # --- Add Transaction Frame ---
+        add_trans_frame = ctk.CTkFrame(summary_frame)
+        add_trans_frame.pack(pady=5)
+        
+        ctk.CTkLabel(add_trans_frame, text="Amount:").pack(side="left", padx=5)
+        self.trans_amount_entry = ctk.CTkEntry(add_trans_frame, placeholder_text="0.00", width=100)
+        self.trans_amount_entry.pack(side="left", padx=5)
+
+        ctk.CTkLabel(add_trans_frame, text="Details:").pack(side="left", padx=5)
+        self.trans_details_entry = ctk.CTkEntry(add_trans_frame, placeholder_text="e.g., Cash Payment")
+        self.trans_details_entry.pack(side="left", padx=5, fill="x", expand=True)
+
+        credit_button = ctk.CTkButton(add_trans_frame, text="Payment Received (+)", command=lambda: self.add_transaction("credit"))
+        credit_button.pack(side="left", padx=5)
+        
+        debit_button = ctk.CTkButton(add_trans_frame, text="Add Charge (-)", fg_color="gray", command=lambda: self.add_transaction("debit"))
+        debit_button.pack(side="left", padx=5)
+
 
         # --- PDF Buttons ---
         pdf_button_frame = ctk.CTkFrame(summary_frame, fg_color="transparent")
@@ -57,7 +76,7 @@ class StatementFrame(ctk.CTkFrame):
             if not customer: return
 
             self.title_label.configure(text=f"Statement for: {customer['name']}")
-            balance_status = "Dr (Will give)" if customer['balance'] > 0 else "Cr (Will get)"
+            balance_status = "Dr (Customer Will give)" if customer['balance'] > 0 else "Cr (Customer Will get)"
             self.net_balance_label.configure(text=f"Net Balance: ₹{abs(customer['balance']):.2f} {balance_status}")
 
             cursor.execute("SELECT * FROM transactions WHERE customer_id = ? ORDER BY transaction_date, id", (self.customer_id,))
@@ -95,9 +114,53 @@ class StatementFrame(ctk.CTkFrame):
         finally:
             conn.close()
 
+    def add_transaction(self, transaction_type):
+        if not self.customer_id: return
+        
+        try:
+            amount = float(self.trans_amount_entry.get())
+            if amount <= 0:
+                raise ValueError("Amount must be positive")
+        except ValueError:
+            messagebox.showerror("Invalid Amount", "Please enter a valid positive number for the amount.", parent=self)
+            return
+            
+        details = self.trans_details_entry.get()
+        if not details:
+            messagebox.showerror("Invalid Details", "Please provide details for the transaction.", parent=self)
+            return
+
+        conn, cursor = get_db_connection()
+        if not conn: return
+        try:
+            cursor.execute("SELECT balance FROM customers WHERE id = ?", (self.customer_id,))
+            current_balance = cursor.fetchone()['balance']
+
+            if transaction_type == "credit":
+                new_balance = current_balance - amount
+                cursor.execute("INSERT INTO transactions (customer_id, transaction_date, details, credit, balance_after) VALUES (?, ?, ?, ?, ?)",
+                               (self.customer_id, date.today().strftime("%Y-%m-%d"), details, amount, new_balance))
+            else: # debit
+                new_balance = current_balance + amount
+                cursor.execute("INSERT INTO transactions (customer_id, transaction_date, details, debit, balance_after) VALUES (?, ?, ?, ?, ?)",
+                               (self.customer_id, date.today().strftime("%Y-%m-%d"), details, amount, new_balance))
+
+            cursor.execute("UPDATE customers SET balance = ? WHERE id = ?", (new_balance, self.customer_id))
+            conn.commit()
+
+            # Clear entry fields and reload
+            self.trans_amount_entry.delete(0, 'end')
+            self.trans_details_entry.delete(0, 'end')
+            self.load_data()
+
+        except sqlite3.Error as e:
+            conn.rollback()
+            messagebox.showerror("Database Error", f"Failed to add transaction: {e}", parent=self)
+        finally:
+            conn.close()
+
     def save_pdf(self):
         if not self.statement_data: return
-        # --- UPDATED: Corrected the function name to call ---
         pdf = generate_statement_pdf(self.statement_data)
         if pdf:
             try:
@@ -115,7 +178,6 @@ class StatementFrame(ctk.CTkFrame):
 
     def open_pdf(self):
         if not self.statement_data: return
-        # --- UPDATED: Corrected the function name to call ---
         pdf = generate_statement_pdf(self.statement_data)
         if pdf:
             try:

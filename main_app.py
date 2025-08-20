@@ -21,7 +21,7 @@ def get_asset_path(filename):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Hardware Store Invoice System")
+        self.title("Hardware Store")
         self.geometry("1100x700")
         self.minsize(800, 600)
         try:
@@ -63,17 +63,17 @@ class MainMenuFrame(ctk.CTkFrame):
         self.grid_columnconfigure(2, weight=1)
         title_frame = ctk.CTkFrame(self, fg_color="transparent")
         title_frame.grid(row=1, column=0, columnspan=3, sticky="nsew")
-        try:
-            logo_path = get_asset_path("logo.ico")
-            logo_image = ctk.CTkImage(Image.open(logo_path), size=(64, 64))
-            logo_label = ctk.CTkLabel(title_frame, image=logo_image, text="")
-            logo_label.pack(pady=(0, 10))
-        except Exception as e:
-            print(f"Error loading logo for main menu: {e}")
-        shop_title = ctk.CTkLabel(title_frame, text="Ziyan's Hardware Store", font=ctk.CTkFont(size=32, weight="bold"))
+        # try:
+        #     logo_path = get_asset_path("logo.ico")
+        #     logo_image = ctk.CTkImage(Image.open(logo_path), size=(64, 64))
+        #     logo_label = ctk.CTkLabel(title_frame, image=logo_image, text="")
+        #     logo_label.pack(pady=(0, 10))
+        # except Exception as e:
+        #     print(f"Error loading logo for main menu: {e}")
+        shop_title = ctk.CTkLabel(title_frame, text="Hardware Store", font=ctk.CTkFont(size=32, weight="bold"))
         shop_title.pack(pady=(0,5))
-        shop_subtitle = ctk.CTkLabel(title_frame, text="Invoice & Inventory Management", font=ctk.CTkFont(size=14, slant="italic"))
-        shop_subtitle.pack()
+        #shop_subtitle = ctk.CTkLabel(title_frame, text="Invoice & Inventory Management", font=ctk.CTkFont(size=14, slant="italic"))
+        #shop_subtitle.pack()
         button_grid = ctk.CTkFrame(self, fg_color="transparent")
         button_grid.grid(row=2, column=0, columnspan=3, padx=100, pady=20, sticky="nsew")
         button_grid.grid_columnconfigure((0, 1, 2), weight=1)

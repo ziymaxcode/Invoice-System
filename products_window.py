@@ -9,9 +9,7 @@ class ProductsFrame(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        self.low_stock_threshold = 10
         
-        # --- NEW: Pagination state ---
         self.current_page = 1
         self.products_per_page = 20
 
@@ -35,8 +33,6 @@ class ProductsFrame(ctk.CTkFrame):
         self.name_entry.pack(pady=5, padx=10, fill="x")
         self.price_entry = ctk.CTkEntry(self.form_frame, placeholder_text="Price (e.g., 12.99)")
         self.price_entry.pack(pady=5, padx=10, fill="x")
-        self.stock_entry = ctk.CTkEntry(self.form_frame, placeholder_text="Current Stock")
-        self.stock_entry.pack(pady=5, padx=10, fill="x")
         self.category_entry = ctk.CTkEntry(self.form_frame, placeholder_text="Category (e.g., Tools)")
         self.category_entry.pack(pady=5, padx=10, fill="x")
         self.action_button = ctk.CTkButton(self.form_frame, text="Add Product", command=self.add_product)
@@ -62,7 +58,6 @@ class ProductsFrame(ctk.CTkFrame):
         self.scrollable_frame = ctk.CTkScrollableFrame(self.display_frame)
         self.scrollable_frame.pack(fill="both", expand=True)
 
-        # --- NEW: Pagination Controls ---
         pagination_frame = ctk.CTkFrame(self.display_frame)
         pagination_frame.pack(fill="x", pady=5)
         self.prev_button = ctk.CTkButton(pagination_frame, text="<< Previous", command=self.prev_page)
@@ -99,7 +94,6 @@ class ProductsFrame(ctk.CTkFrame):
         if not conn: return
         
         try:
-            # --- UPDATED: Query logic for pagination ---
             count_query = "SELECT COUNT(*) FROM products WHERE 1=1"
             query = "SELECT * FROM products WHERE 1=1"
             params = []
@@ -118,12 +112,10 @@ class ProductsFrame(ctk.CTkFrame):
                 query += filter_clause
                 params.append(category)
             
-            # Get total count for pagination
             cursor.execute(count_query, tuple(params))
             total_products = cursor.fetchone()[0]
             total_pages = math.ceil(total_products / self.products_per_page)
             
-            # Add pagination clauses to main query
             query += " ORDER BY name LIMIT ? OFFSET ?"
             offset = (self.current_page - 1) * self.products_per_page
             params.extend([self.products_per_page, offset])
@@ -131,28 +123,26 @@ class ProductsFrame(ctk.CTkFrame):
             cursor.execute(query, tuple(params))
             products = cursor.fetchall()
 
-            # Update pagination UI
-            self.page_label.configure(text=f"Page {self.current_page} / {total_pages}")
+            self.page_label.configure(text=f"Page {self.current_page} / {total_pages if total_pages > 0 else 1}")
             self.prev_button.configure(state="normal" if self.current_page > 1 else "disabled")
             self.next_button.configure(state="normal" if self.current_page < total_pages else "disabled")
 
-            # --- (Rest of the UI drawing logic is the same) ---
             header_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
             header_frame.pack(fill="x", padx=5, pady=2)
             ctk.CTkLabel(header_frame, text="Name", font=ctk.CTkFont(weight="bold"), width=200, anchor="w").pack(side="left", expand=True, fill="x")
             ctk.CTkLabel(header_frame, text="Category", font=ctk.CTkFont(weight="bold"), width=100, anchor="w").pack(side="left")
             ctk.CTkLabel(header_frame, text="Price", font=ctk.CTkFont(weight="bold"), width=80, anchor="w").pack(side="left")
-            ctk.CTkLabel(header_frame, text="Stock", font=ctk.CTkFont(weight="bold"), width=80, anchor="w").pack(side="left")
             ctk.CTkLabel(header_frame, text="Actions", font=ctk.CTkFont(weight="bold"), width=150, anchor="center").pack(side="left")
+
             for product in products:
                 product_dict = dict(product)
                 row_frame = ctk.CTkFrame(self.scrollable_frame)
                 row_frame.pack(fill="x", padx=5, pady=2)
-                stock_color = "red" if product_dict['stock'] <= self.low_stock_threshold else "white"
+                
                 ctk.CTkLabel(row_frame, text=product_dict['name'], width=200, anchor="w").pack(side="left", expand=True, fill="x")
                 ctk.CTkLabel(row_frame, text=product_dict['category'], width=100, anchor="w").pack(side="left")
                 ctk.CTkLabel(row_frame, text=f"₹{product_dict['price']:.2f}", width=80, anchor="w").pack(side="left")
-                ctk.CTkLabel(row_frame, text=product_dict['stock'], width=80, anchor="w", text_color=stock_color).pack(side="left")
+                
                 actions_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
                 actions_frame.pack(side="left", padx=5)
                 edit_button = ctk.CTkButton(actions_frame, text="Edit", width=60, command=lambda p=product_dict: self.setup_edit_form(p))
@@ -165,7 +155,6 @@ class ProductsFrame(ctk.CTkFrame):
             if conn:
                 conn.close()
     
-    # ... (all other functions like add_product, import_from_csv, etc. are unchanged)
     def update_category_filter(self):
         conn, cursor = get_db_connection()
         if not conn: return
@@ -180,7 +169,6 @@ class ProductsFrame(ctk.CTkFrame):
     def clear_form(self, set_add_mode=True):
         self.name_entry.delete(0, 'end')
         self.price_entry.delete(0, 'end')
-        self.stock_entry.delete(0, 'end')
         self.category_entry.delete(0, 'end')
         self.status_label.configure(text="")
         self.editing_product_id = None
@@ -190,22 +178,20 @@ class ProductsFrame(ctk.CTkFrame):
     def add_product(self):
         name = self.name_entry.get()
         price = self.price_entry.get()
-        stock = self.stock_entry.get()
         category = self.category_entry.get()
-        if not name or not price or not stock:
-            self.status_label.configure(text="Name, Price, and Stock are required.", text_color="red")
+        if not name or not price:
+            self.status_label.configure(text="Name and Price are required.", text_color="red")
             return
         try:
             price_val = float(price)
-            stock_val = int(stock)
         except ValueError:
-            self.status_label.configure(text="Price/Stock must be numbers.", text_color="red")
+            self.status_label.configure(text="Price must be a number.", text_color="red")
             return
         conn, cursor = get_db_connection()
         if conn and cursor:
             try:
-                sql = "INSERT INTO products (name, price, stock, category) VALUES (?, ?, ?, ?)"
-                cursor.execute(sql, (name, price_val, stock_val, category))
+                sql = "INSERT INTO products (name, price, category) VALUES (?, ?, ?)"
+                cursor.execute(sql, (name, price_val, category))
                 conn.commit()
                 self.status_label.configure(text="Product added!", text_color="green")
                 self.clear_form(set_add_mode=False)
@@ -219,7 +205,6 @@ class ProductsFrame(ctk.CTkFrame):
         self.editing_product_id = product['id']
         self.name_entry.insert(0, product['name'])
         self.price_entry.insert(0, str(product['price']))
-        self.stock_entry.insert(0, str(product['stock']))
         self.category_entry.insert(0, product['category'] or "")
         self.form_title.configure(text=f"Editing: {product['name']}")
         self.action_button.configure(text="Save Changes", command=self.save_changes)
@@ -227,22 +212,20 @@ class ProductsFrame(ctk.CTkFrame):
         if self.editing_product_id is None: return
         name = self.name_entry.get()
         price = self.price_entry.get()
-        stock = self.stock_entry.get()
         category = self.category_entry.get()
-        if not name or not price or not stock:
-            self.status_label.configure(text="Name, Price, and Stock are required.", text_color="red")
+        if not name or not price:
+            self.status_label.configure(text="Name and Price are required.", text_color="red")
             return
         try:
             price_val = float(price)
-            stock_val = int(stock)
         except ValueError:
-            self.status_label.configure(text="Price/Stock must be numbers.", text_color="red")
+            self.status_label.configure(text="Price must be a number.", text_color="red")
             return
         conn, cursor = get_db_connection()
         if conn and cursor:
             try:
-                sql = "UPDATE products SET name = ?, price = ?, stock = ?, category = ? WHERE id = ?"
-                cursor.execute(sql, (name, price_val, stock_val, category, self.editing_product_id))
+                sql = "UPDATE products SET name = ?, price = ?, category = ? WHERE id = ?"
+                cursor.execute(sql, (name, price_val, category, self.editing_product_id))
                 conn.commit()
                 self.status_label.configure(text="Changes saved!", text_color="green")
                 self.clear_form()
@@ -282,9 +265,10 @@ class ProductsFrame(ctk.CTkFrame):
                 next(reader) # Skip header row
                 for row in reader:
                     try:
-                        name, price, stock, category = row
-                        sql = "INSERT INTO products (name, price, stock, category) VALUES (?, ?, ?, ?)"
-                        cursor.execute(sql, (name, float(price), int(stock), category))
+                        # --- UPDATED: CSV format is now name, price, category ---
+                        name, price, category = row
+                        sql = "INSERT INTO products (name, price, category) VALUES (?, ?, ?)"
+                        cursor.execute(sql, (name, float(price), category))
                         imported_count += 1
                     except (sqlite3.IntegrityError, ValueError) as e:
                         print(f"Skipping row: {row} due to error: {e}")
